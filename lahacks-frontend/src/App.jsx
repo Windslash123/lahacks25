@@ -102,8 +102,15 @@ function App() {
   
 
 return (
-  <div className="min-h-screen flex flex-col items-center justify-center gap-10 bg-gradient-to-br from-green-100 via-white to-yellow-100 p-8">
-    <h1 className="text-5xl font-bold text-gray-800 tracking-wide">FISCORA</h1>
+  <div className="min-h-screen flex flex-col items-center justify-center gap-11 bg-gradient-to-br from-green-100 via-white to-yellow-100 p-8">
+    <h1 className="text-7xl font-bold tracking-wide bg-gradient-to-r from-green-300 via-green-400 to-green-500 bg-clip-text text-transparent uppercase font-outfit">
+  FISCORA
+</h1>
+
+
+
+
+
 
     <div className="w-full max-w-md">
       <PlaidLinker />
