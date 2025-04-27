@@ -145,8 +145,11 @@ def get_line_graph_data(start_money):
         shares.append(float(price[0]*num_shares))
     return jsonify(shares)
 
-@app.route('/api/get_ai_summary/', methods=['GET'])
-def ask_gemini(transaction_history):
+@app.route('/api/get_ai_summary/', methods=['POST'])
+def ask_gemini():
+    transaction_history = request.json['transaction_history']
+
+
     prompt = ("You are a financial assistant. Given this user's transaction history point out specific places, categories they"
          " are spending excessively regardless of not needing to and specify the regularity of this spending." 
          " Suggest a compromise to reduce their spending. Analyze their spending and suggest a reasonable amount"
@@ -164,7 +167,9 @@ def ask_gemini(transaction_history):
         prompt + "\n\nTransaction History:\n" + str(transaction_history)
     )
 
-    return response.text
+    print ("HELLO", response.text)
+
+    return jsonify({'summary': response.text})
 
 def parse_user_data(responses):
     for entry in responses:
