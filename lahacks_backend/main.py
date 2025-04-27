@@ -14,7 +14,12 @@ import joblib
 import google.generativeai as genai
 from flask_cors import CORS
 from dotenv import load_dotenv
+import sendgrid
+from sendgrid.helpers.mail import Mail
 import os
+import json
+import smtplib
+from email.mime.text import MIMEText
 
 app = Flask(__name__)
 CORS(app)
@@ -91,7 +96,6 @@ def get_transactions():
         cursor = response.next_cursor
 
     parse_user_data(response.added)
-    print(user_data)
     return jsonify({'transactions': [txn.to_dict() for txn in all_transactions]})
 
 
@@ -110,8 +114,8 @@ def get_current_sp500_price():
 @app.route('/api/get_predictions/<start_money>', methods=['GET'])
 def get_line_graph_data(start_money):
     print("HI", start_money)
-    model = load_model('/Users/arshiaaravinthan/Documents/GitHub/LAHacks/lahacks_backend/lstm_sp500_model.keras')
-    sc = joblib.load('/Users/arshiaaravinthan/Documents/GitHub/LAHacks/lahacks_backend/scaler.save')
+    model = load_model('lahacks_backend/lstm_sp500_model.keras')
+    sc = joblib.load('lahacks_backend/scaler.save')
     sp500_data = yf.download('^GSPC', period='60d')  # '60d' = last 60 days
     current_price = get_current_sp500_price()
 
@@ -149,31 +153,105 @@ def get_line_graph_data(start_money):
 def ask_gemini():
     transaction_history = request.json['transaction_history']
 
-
-    prompt = ("You are a financial assistant. Given this user's transaction history point out specific places, categories they"
-         " are spending excessively regardless of not needing to and specify the regularity of this spending." 
-         " Suggest a compromise to reduce their spending. Analyze their spending and suggest a reasonable amount"
-          " to reduce their monthly spending, if any, and invest that amount instead."
-          "Bbe straight forward, (no fluff) but structured and pretty (dont add too many empty lines), "
-          "don't suggest further conversation. Ignore accounts where category confidence level is low. Exclude the expenses from those facets."
-          "Delete the fluff in the beginning including the Hello, get straight to a point but be in-depth. Return a tuple with the first entry being"
-          "your response and the second being the amount of money you suggest to save")
+    prompt = (
+        "You are a financial assistant. Given this user's transaction history, point out specific places and categories where they "
+        "are spending excessively, specify the regularity of this spending, suggest compromises to reduce it, and recommend a reasonable "
+        "monthly savings amount. Return ONLY a JSON object with two fields: "
+        "'summary' (the analysis as a string) and 'suggested_savings' (a number, float or int). "
+        "Do not add any greeting or closing text. Do not wrap it in markdown or code blocks."
+        "\n\nTransaction History:\n" + str(transaction_history)
+    )
 
     genai_api_key = os.getenv('GENAI_API_KEY')
     genai.configure(api_key=genai_api_key)
     model = genai.GenerativeModel("gemini-1.5-flash")
 
-    response = model.generate_content(
-        prompt + "\n\nTransaction History:\n" + str(transaction_history)
-    )
+    response = model.generate_content(prompt)
+    response_text = response.text
 
-    print ("HELLO", response.text)
+    # Try to safely parse it as JSON
+    try:
+        response_json = json.loads(response_text)
+        print(response_json)
+    except json.JSONDecodeError as e:
+        return jsonify({"error": "Failed to parse AI output as JSON", "details": str(e), "raw_response": response_text}), 500
 
-    return jsonify({'summary': response.text})
+    return jsonify(response_json)
+
 
 def parse_user_data(responses):
     for entry in responses:
         user_data.append({'date': entry['date'], 'category': entry['personal_finance_category'], 'name': entry['name'], 'amount': entry['amount']})
+
+from flask import request  # Make sure you have this imported
+
+from flask import request, jsonify
+from twilio.rest import Client
+
+@app.route('/api/send_email/', methods=['POST'])
+def send_email_route():
+    data = request.form
+    to_email = data.get('user_email')
+    user_goals = data.get('user_goals')
+    ai_summary = data.get('ai_summary')
+
+    smtp_server = 'smtp.gmail.com'
+    smtp_port = 587
+    from_email = 'fiscora2614@gmail.com'
+    from_password = 'wrafgzeurkqbxjll'  # Use your Gmail App Password!
+
+    # subject = 'Your Financial Goals'
+    # body = f"Thanks for submitting your goals! Here’s what you wrote:\n\n{user_goals}"
+
+    prompt = (
+    "You are a friendly financial coach.\n\n"
+    "Given two pieces of information:\n"
+    "- A financial spending analysis for the user (called 'financial_analysis')\n"
+    "- A personal finance goal from the user (called 'user_goal')\n\n"
+    "Your task:\n"
+    "- Read the 'financial_analysis' to understand the user's current spending habits.\n"
+    "- Read the 'user_goal' to understand what the user personally wants to improve.\n"
+    "- Write an encouraging, positive, and empathetic message:\n"
+    "  - Directly acknowledge the user's personal goal.\n"
+    "  - Incorporate advice or motivation based on the financial analysis.\n"
+    "  - Be supportive, not judgmental. Make the user feel optimistic about improving.\n"
+    "  - Use warm, uplifting language. Keep it between 3–6 sentences.\n\n"
+    "**Input:**\n"
+    f"financial_analysis = {ai_summary}\n\n"
+    f"user_goal = {user_goals}\n\n"
+    "**Output:**\n"
+    "Only return the motivational message as plain text. No formatting, no labels, no code block."
+)
+
+    genai_api_key = os.getenv('GENAI_API_KEY')
+    genai.configure(api_key=genai_api_key)
+    model = genai.GenerativeModel("gemini-1.5-flash")
+
+    response = model.generate_content(prompt)
+    response_text = response.text.strip()
+
+    subject = 'Your Personalized Financial Coaching!'
+    body = (
+        f"Hello!\n\n"
+        f"Thank you for sharing your financial goals with us.\n\n"
+        f"{response_text}\n\n"
+        f"Keep going — you've got this!\n\n"
+        f"- Your Fiscora Team"
+    )
+
+    msg = MIMEText(body)
+    msg['Subject'] = subject
+    msg['From'] = from_email
+    msg['To'] = to_email
+
+    server = smtplib.SMTP(smtp_server, smtp_port)
+    server.starttls()
+    server.login(from_email, from_password)
+    server.sendmail(from_email, to_email, msg.as_string())
+    server.quit()
+
+    return 'Email sent successfully!'
+
 
 if __name__ == '__main__':
     app.run(debug=True, port=5001)

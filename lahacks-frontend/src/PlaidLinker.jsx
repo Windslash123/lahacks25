@@ -26,7 +26,7 @@ export default function PlaidLinker() {
   };
 
   if (!linkToken) {
-    return <div>loading...</div>;
+    return <div></div>;
   }
 
   return (

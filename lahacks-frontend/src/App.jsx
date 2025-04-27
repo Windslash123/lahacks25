@@ -8,95 +8,58 @@ function App() {
   const [userData, setUserData] = useState([]);
   const [invest, setInvest] = useState([]);
   const [aiSummary, setAiSummary] = useState('');
-  const [loadingSummary, setLoadingSummary] = useState(false); // For loading animation
+  const [loadingSummary, setLoadingSummary] = useState(false);
   const [savingsAmount, setSavingsAmount] = useState(0);
 
+  const [userEmail, setUserEmail] = useState('');
+  const [userGoals, setUserGoals] = useState('');
+  const [submissionMessage, setSubmissionMessage] = useState('');
 
-
-
+  // Fetch transaction data + AI summary
   useEffect(() => {
     fetch('http://localhost:5001/api/get_transactions')
       .then(res => res.json())
       .then(response => {
-        console.log(response);
         setUserData(response.transactions || []);
-
-
+  
         if (response.transactions && response.transactions.length > 0) {
           setLoadingSummary(true);
           fetch('http://localhost:5001/api/get_ai_summary/', {
             method: 'POST',
-            headers: {
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({ transaction_history: response.transactions })
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ transaction_history: response.transactions }),
           })
             .then(res => res.json())
             .then(summaryResponse => {
-              console.log('AI Summary:', summaryResponse);
-            
-              const text = summaryResponse.summary;
-            
-              if (text) {
-                // Match the tuple like ('summary', number)
-                const tupleMatch = text.match(/\('(.*?)',\s*([\d.]+)\)/);
-            
-                if (tupleMatch) {
-                  const parsedSummary = tupleMatch[1].replace(/\\n/g, '\n');  // First capture group = summary text
-                  const parsedAmount = parseFloat(tupleMatch[2]);  // Second capture group = savings number
-            
-                  console.log('Parsed Summary:', parsedSummary);
-                  console.log('Parsed Savings Amount:', parsedAmount);
-            
-                  setAiSummary(parsedSummary);
-                  setSavingsAmount(parsedAmount);
-            
-                  // ✅ THEN call get_predictions dynamically
-                  fetch('http://localhost:5001/api/get_predictions/' + parsedAmount)
-                    .then(res => res.json())
-                    .then(response => {
-                      console.log('Investment Prediction:', response);
-                      setInvest(response || []);
-                    });
-                } else {
-                  console.error('Failed to parse AI Summary tuple');
-                }
+              const { summary, suggested_savings } = summaryResponse;
+  
+              if (summary && suggested_savings !== undefined) {
+                setAiSummary(summary);
+                setSavingsAmount(parseFloat(suggested_savings));
+  
+                fetch('http://localhost:5001/api/get_predictions/' + suggested_savings)
+                  .then(res => res.json())
+                  .then(predictions => {
+                    setInvest(predictions || []);
+                  });
               }
-            
+  
               setLoadingSummary(false);
-            })
-            
+            });
         }
       });
-
-    // fetch('http://localhost:5001/api/get_predictions/' + '200')
-    //   .then(res => res.json())
-    //   .then(response => {
-    //     setInvest(response || []);
-    //   });
-
   }, []);
 
+  // Prepare expenses chart
   const startDate = new Date('2025-02-01');
   const endDate = new Date('2025-03-01');
-
-  const expenses = {
-    FoodAndDrink: 0,
-    Shopping: 0,
-    Travel: 0,
-    Recreation: 0,
-    Other: 0,
-  };
+  const expenses = { FoodAndDrink: 0, Shopping: 0, Travel: 0, Recreation: 0, Other: 0 };
 
   userData.forEach(transaction => {
     const transDate = new Date(transaction.date);
     if (transDate >= startDate && transDate <= endDate && transaction.amount > 0) {
       const category = transaction.category[0];
-      console.log(category)
-      // console.log(transaction)
-      
       if (category === 'Food and Drink') {
-        console.log(category === 'Food and Drink')
         expenses.FoodAndDrink += transaction.amount;
       } else if (category === 'Shops') {
         expenses.Shopping += transaction.amount;
@@ -112,45 +75,104 @@ function App() {
 
   const total = Object.values(expenses).reduce((sum, val) => sum + val, 0);
 
-  return (
-    <div className="min-h-screen flex flex-col items-center justify-center gap-8 bg-gradient-to-br from-green-100 via-white to-yellow-100 p-6">
-      <h1> FISCORA </h1>
+ const handleFormSubmit = (e) => {
+  e.preventDefault();
+  fetch('http://localhost:5001/api/send_email/', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      user_email: userEmail,
+      user_goals: userGoals,
+      ai_summary: aiSummary,
+    }),
+  })
+    .then(response => response.text())
+    .then(data => {
+      console.log(data);
+      setSubmissionMessage('✅ Email sent successfully!');
+      setUserEmail('');   
+      setUserGoals('');
+    })
+    .catch(error => {
+      console.error('Error:', error);
+      setSubmissionMessage('❌ Failed to send email.');
+    });
+};
 
-      <div className="card">
-        <PlaidLinker />
-      </div>
+  
 
-      <div className="w-full flex flex-row gap-6 justify-center">
-        <ExpenseChart
-          totalExpenses={total - expenses.Other}
-          expenseData={[
-            expenses.FoodAndDrink,
-            expenses.Shopping,
-            expenses.Travel,
-            expenses.Recreation
-          ]}
-          startDate="February 01"
-          endDate="March 01"
-        />
-        <InvestmentChart predictions={invest} />
+return (
+  <div className="min-h-screen flex flex-col items-center justify-center gap-10 bg-gradient-to-br from-green-100 via-white to-yellow-100 p-8">
+    <h1 className="text-5xl font-bold text-gray-800 tracking-wide">FISCORA</h1>
 
-        <div className="bg-gray-50 rounded-2xl shadow-lg p-6 w-full max-w-md flex flex-col items-center relative">
-  <div className="w-full flex justify-between items-center mb-6">
-    <h2 className="text-xl font-bold">Financial Insights</h2>
-  </div>
+    <div className="w-full max-w-md">
+      <PlaidLinker />
+    </div>
 
-  <div className="w-full text-left">
-    {loadingSummary ? (
-      <p className="text-gray-500 animate-pulse">Loading AI analysis...</p>
-    ) : (
-      <p className="text-gray-700 whitespace-pre-line">{aiSummary}</p>
-    )}
-  </div>
-  </div>
+    <div className="w-full flex flex-col lg:flex-row gap-8 justify-center items-start">
+      {/* Expense Chart */}
+      <ExpenseChart
+        totalExpenses={total - expenses.Other}
+        expenseData={[
+          expenses.FoodAndDrink,
+          expenses.Shopping,
+          expenses.Travel,
+          expenses.Recreation
+        ]}
+        startDate="February 01"
+        endDate="March 01"
+      />
 
+      {/* Investment Chart */}
+      <InvestmentChart predictions={invest} />
+
+      {/* Financial Insights */}
+      <div className="bg-white rounded-2xl shadow-md p-6 w-full max-w-md flex flex-col items-center">
+        <h2 className="text-2xl font-semibold text-gray-800 mb-4">Financial Insights</h2>
+        <div className="w-full text-left">
+          {loadingSummary ? (
+            <p className="text-gray-400 animate-pulse">Analyzing your data...</p>
+          ) : (
+            <p className="text-gray-700 whitespace-pre-line">{aiSummary}</p>
+          )}
+        </div>
       </div>
     </div>
-  );
+
+    {/* Email + Finance Goals Form */}
+    <div className="bg-white rounded-2xl shadow-md p-6 w-full max-w-md flex flex-col items-center mt-10">
+      <h2 className="text-2xl font-semibold text-gray-800 mb-6">Get Personalized Finance Help</h2>
+      <form onSubmit={handleFormSubmit} className="w-full flex flex-col gap-4">
+        <input
+          type="email"
+          placeholder="Enter your email"
+          className="border border-gray-300 p-3 rounded-lg w-full"
+          value={userEmail}
+          onChange={(e) => setUserEmail(e.target.value)}
+          required
+        />
+        <textarea
+          placeholder="Describe your finance goals and style"
+          className="border border-gray-300 p-3 rounded-lg w-full h-32"
+          value={userGoals}
+          onChange={(e) => setUserGoals(e.target.value)}
+          required
+        />
+        <button
+          type="submit"
+          className="bg-green-500 hover:bg-green-600 text-white py-2 px-4 rounded-lg transition"
+        >
+          Submit
+        </button>
+      </form>
+      {submissionMessage && (
+        <p className="text-sm text-gray-500 mt-4">{submissionMessage}</p>
+      )}
+    </div>
+  </div>
+);
+ 
 }
 
 export default App;
+
