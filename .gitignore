@@ -1,0 +1,4 @@
+.env
+google-cloud-sdk/
+.DS_Store
+lahacks_backend/__pycache__
